@@ -45,7 +45,7 @@ jobs:
       - name: Install Salesforce Code Analyzer
         run: sf plugins install @salesforce/plugin-code-analyzer
 
-      # 6. Run PMD static analysis
+      # 6. Enforce PMD quality gate
       - name: Run PMD static analysis
         run: |
           sf code-analyzer run \
@@ -60,7 +60,9 @@ jobs:
           SF_USERNAME: ${{ secrets.SF_USERNAME }}
           SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
         run: |
+          set -euo pipefail
           umask 077
+
           printf '%s\n' "$SF_JWT_KEY" > "$RUNNER_TEMP/server.key"
 
           sf org login jwt \
@@ -70,8 +72,8 @@ jobs:
             --instance-url https://login.salesforce.com \
             --alias qa
 
-      # 8. Validate deployment and execute Apex tests
-      - name: Validate Apex deployment and run tests
+      # 8. Validate deployment, tests and coverage
+      - name: Validate Apex deployment and enforce coverage
         shell: bash
         run: |
           set -euo pipefail
@@ -82,9 +84,85 @@ jobs:
             --dry-run \
             --test-level RunSpecifiedTests \
             --tests CICDPracticeServiceTest \
-            --wait 30
+            --wait 30 \
+            --json > deployment-result.json
 
-      # 9. Cleanup JWT private key
+          node <<'NODE'
+          const fs = require('fs');
+
+          const data = JSON.parse(
+            fs.readFileSync('deployment-result.json', 'utf8')
+          );
+
+          const result = data.result || {};
+          const tests = result.details?.runTestResult || {};
+
+          const executed = Number(tests.numTestsRun ?? 0);
+          const failures = Number(tests.numFailures ?? 0);
+
+          console.log(`Deployment status: ${result.status}`);
+          console.log(`Tests executed: ${executed}`);
+          console.log(`Tests failed: ${failures}`);
+
+          if (
+            data.status !== 0 ||
+            result.success !== true ||
+            executed === 0 ||
+            failures !== 0
+          ) {
+            console.error('Deployment or Apex test validation failed.');
+            process.exit(1);
+          }
+
+          const classes = tests.codeCoverage || [];
+
+          if (classes.length === 0) {
+            console.error('No Apex coverage data returned.');
+            process.exit(1);
+          }
+
+          const minimumCoverage = 75;
+          let failed = false;
+
+          for (const cls of classes) {
+            const total = Number(cls.numLocations);
+            const uncovered = Number(cls.numLocationsNotCovered);
+
+            if (
+              !Number.isFinite(total) ||
+              !Number.isFinite(uncovered) ||
+              total <= 0 ||
+              uncovered < 0 ||
+              uncovered > total
+            ) {
+              console.error(`Invalid coverage data for ${cls.name}`);
+              failed = true;
+              continue;
+            }
+
+            const coverage = ((total - uncovered) / total) * 100;
+
+            console.log(
+              `${cls.name}: ${coverage.toFixed(2)}% coverage`
+            );
+
+            if (coverage < minimumCoverage) {
+              console.error(
+                `${cls.name} failed minimum ${minimumCoverage}% coverage.`
+              );
+              failed = true;
+            }
+          }
+
+          if (failed) {
+            console.error('Apex coverage quality gate failed.');
+            process.exit(1);
+          }
+
+          console.log('Apex coverage quality gate passed.');
+          NODE
+
+      # 9. Always remove temporary authentication key
       - name: Cleanup JWT private key
         if: always()
         run: rm -f "$RUNNER_TEMP/server.key"
