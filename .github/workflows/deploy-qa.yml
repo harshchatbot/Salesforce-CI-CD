@@ -59,7 +59,7 @@ jobs:
             --manifest manifest/package.xml \
             --target-org qa \
             --test-level RunSpecifiedTests \
-            --tests CICDPracticeServiceTest \
+            --tests OrderCalculatorTest \
             --wait 30
 
       - name: Cleanup JWT private key
