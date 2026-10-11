@@ -83,7 +83,7 @@ jobs:
             --target-org qa \
             --dry-run \
             --test-level RunSpecifiedTests \
-            --tests CICDPracticeServiceTest \
+            --tests OrderCalculatorTest \
             --wait 30 \
             --json > deployment-result.json
 
