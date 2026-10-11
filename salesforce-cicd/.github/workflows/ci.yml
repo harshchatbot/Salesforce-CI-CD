@@ -49,8 +49,8 @@ jobs:
 
           rm -f "$RUNNER_TEMP/server.key"
 
+      
       - name: Validate Apex deployment and run tests
-        if: hashFiles('salesforce-cicd/force-app/main/default/classes/CICDPracticeService.cls') != ''
         run: |
           sf project deploy start \
             --manifest manifest/package.xml \
@@ -58,4 +58,18 @@ jobs:
             --dry-run \
             --test-level RunSpecifiedTests \
             --tests CICDPracticeServiceTest \
-            --wait 30
+            --wait 30 \
+            --json > deployment-result.json
+
+          node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync("deployment-result.json"));
+            const tests = data.result?.details?.runTestResult;
+            const successes = Number(tests?.numTestsRun ?? 0);
+            const failures = Number(tests?.numFailures ?? 0);
+            console.log(`Tests executed: ${successes}, failures: ${failures}`);
+            if (successes === 0 || failures > 0) {
+              console.error("Apex test quality gate failed.");
+              process.exit(1);
+            }
+          '
