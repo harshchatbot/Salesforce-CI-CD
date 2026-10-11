@@ -47,10 +47,7 @@ jobs:
             --instance-url https://login.salesforce.com \
             --alias qa
 
-          rm -f "$RUNNER_TEMP/server.key"
-
       - name: Validate Apex deployment and run tests
-        if: ${{ hashFiles('salesforce-cicd/force-app/main/default/classes/CICDPracticeService.cls') != '' }}
         run: |
           sf project deploy start \
             --manifest manifest/package.xml \
@@ -58,4 +55,33 @@ jobs:
             --dry-run \
             --test-level RunSpecifiedTests \
             --tests CICDPracticeServiceTest \
-            --wait 30
+            --wait 30 \
+            --json > deployment-result.json
+
+          node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync("deployment-result.json"));
+            const result = data.result || {};
+            const tests = result.details?.runTestResult || {};
+
+            const executed = Number(tests.numTestsRun ?? 0);
+            const failures = Number(tests.numFailures ?? 0);
+
+            console.log(`Deployment status: ${result.status}`);
+            console.log(`Tests executed: ${executed}`);
+            console.log(`Tests failed: ${failures}`);
+
+            if (data.status !== 0 ||
+                result.success !== true ||
+                executed === 0 ||
+                failures > 0) {
+              console.error("Salesforce CI quality gate failed.");
+              process.exit(1);
+            }
+
+            console.log("Salesforce CI validation passed.");
+          '
+
+      - name: Cleanup JWT private key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/server.key"
