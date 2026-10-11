@@ -20,17 +20,40 @@ jobs:
         working-directory: salesforce-cicd
 
     steps:
+      # 1. Checkout repository
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
+      # 3. Setup Java for PMD
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # 4. Install Salesforce CLI
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
 
+      # 5. Install Salesforce Code Analyzer
+      - name: Install Salesforce Code Analyzer
+        run: sf plugins install @salesforce/plugin-code-analyzer
+
+      # 6. Run PMD static analysis
+      - name: Run PMD static analysis
+        run: |
+          sf code-analyzer run \
+            --workspace force-app/main/default/classes \
+            --rule-selector pmd \
+            --severity-threshold 3
+
+      # 7. Authenticate to Salesforce QA
       - name: Authenticate to QA
         env:
           SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
@@ -47,11 +70,12 @@ jobs:
             --instance-url https://login.salesforce.com \
             --alias qa
 
-          rm -f "$RUNNER_TEMP/server.key"
-
+      # 8. Validate deployment and execute Apex tests
       - name: Validate Apex deployment and run tests
-        if: ${{ hashFiles('salesforce-cicd/force-app/main/default/classes/CICDPracticeService.cls') != '' }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           sf project deploy start \
             --manifest manifest/package.xml \
             --target-org qa \
@@ -59,3 +83,8 @@ jobs:
             --test-level RunSpecifiedTests \
             --tests CICDPracticeServiceTest \
             --wait 30
+
+      # 9. Cleanup JWT private key
+      - name: Cleanup JWT private key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/server.key"
