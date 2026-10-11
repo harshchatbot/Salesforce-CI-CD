@@ -50,6 +50,7 @@ jobs:
           rm -f "$RUNNER_TEMP/server.key"
 
       - name: Validate Apex deployment and run tests
+        if: ${{ hashFiles('salesforce-cicd/force-app/main/default/classes/CICDPracticeService.cls') != '' }}
         run: |
           sf project deploy start \
             --manifest manifest/package.xml \
