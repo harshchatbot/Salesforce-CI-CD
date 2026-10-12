@@ -1,3 +1,6 @@
+/**
+ * @testClass OrderCalculatorTest
+ */
 public with sharing class OrderCalculator {
 
     public static Decimal calculateTotal(
